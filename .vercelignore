@@ -1,0 +1,5 @@
+.git
+.gitignore
+README.md
+pnpm-debug.log
+.DS_Store
