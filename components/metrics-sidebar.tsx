@@ -1,6 +1,6 @@
 "use client"
 
-import { Activity, Crosshair, Repeat, Zap } from "lucide-react"
+import { Activity, Crosshair, Repeat, Zap, Timer } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 type MetricsSidebarProps = {
@@ -14,6 +14,10 @@ type MetricsSidebarProps = {
   mode: string
   modes: readonly string[]
   onModeChange: (mode: string) => void
+  /** True for Plank — a held position has no rep count or form score, so it gets its own card instead of the Reps/Accuracy ones. */
+  isHoldMode: boolean
+  holdSeconds: number
+  bestHoldSeconds: number
 }
 
 function MetricCard({
@@ -51,6 +55,9 @@ export function MetricsSidebar({
   mode,
   modes,
   onModeChange,
+  isHoldMode,
+  holdSeconds,
+  bestHoldSeconds,
 }: MetricsSidebarProps) {
   return (
     <aside className="flex h-full flex-col gap-4 rounded-2xl border border-border bg-sidebar/80 p-5 neon-border backdrop-blur">
@@ -65,36 +72,58 @@ export function MetricsSidebar({
         />
       </header>
 
-      {/* Reps */}
-      <MetricCard icon={Repeat} label={repLabel === "strikes" ? "Strikes Detected" : "Reps Counted"} accent="success">
-        <div className="flex items-end gap-2">
-          <span className="font-mono text-5xl font-bold leading-none text-success text-glow">
-            {String(reps).padStart(2, "0")}
-          </span>
-          <span className="pb-1 text-xs text-muted-foreground">total {repLabel}</span>
-        </div>
-        {active && (
+      {isHoldMode ? (
+        <MetricCard icon={Timer} label="Plank Hold" accent="success">
+          <div className="flex items-end gap-2">
+            <span className="font-mono text-5xl font-bold leading-none text-success text-glow">
+              {holdSeconds.toFixed(1)}
+            </span>
+            <span className="pb-1 text-xs text-muted-foreground">seconds</span>
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            {tracking ? "Tracking your movement…" : "Step into frame so the camera can see your full body."}
+            {active
+              ? tracking
+                ? bestHoldSeconds > 0
+                  ? `Best this session: ${bestHoldSeconds.toFixed(1)}s`
+                  : "Hold a straight line from shoulders to ankles."
+                : "Step into frame so the camera can see your full body."
+              : "Start the camera to begin your hold."}
           </p>
-        )}
-      </MetricCard>
+        </MetricCard>
+      ) : (
+        <>
+          {/* Reps */}
+          <MetricCard icon={Repeat} label={repLabel === "strikes" ? "Strikes Detected" : "Reps Counted"} accent="success">
+            <div className="flex items-end gap-2">
+              <span className="font-mono text-5xl font-bold leading-none text-success text-glow">
+                {String(reps).padStart(2, "0")}
+              </span>
+              <span className="pb-1 text-xs text-muted-foreground">total {repLabel}</span>
+            </div>
+            {active && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {tracking ? "Tracking your movement…" : "Step into frame so the camera can see your full body."}
+              </p>
+            )}
+          </MetricCard>
 
-      {/* Stance accuracy */}
-      <MetricCard icon={Crosshair} label="Stance Accuracy" accent="primary">
-        <div className="mb-2 flex items-baseline justify-between">
-          <span className="font-mono text-3xl font-bold text-primary text-glow">{accuracy}%</span>
-          <span className="text-xs text-muted-foreground">
-            {accuracy >= 85 ? "Excellent" : accuracy >= 70 ? "Good" : "Adjust form"}
-          </span>
-        </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-primary/70 to-primary transition-all duration-700"
-            style={{ width: `${accuracy}%` }}
-          />
-        </div>
-      </MetricCard>
+          {/* Stance accuracy */}
+          <MetricCard icon={Crosshair} label="Stance Accuracy" accent="primary">
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="font-mono text-3xl font-bold text-primary text-glow">{accuracy}%</span>
+              <span className="text-xs text-muted-foreground">
+                {accuracy >= 85 ? "Excellent" : accuracy >= 70 ? "Good" : "Adjust form"}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-primary/70 to-primary transition-all duration-700"
+                style={{ width: `${accuracy}%` }}
+              />
+            </div>
+          </MetricCard>
+        </>
+      )}
 
       {/* Movement mode */}
       <MetricCard icon={Zap} label="Current Movement Mode" accent="warning">

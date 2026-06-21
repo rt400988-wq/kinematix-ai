@@ -1,20 +1,40 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Camera, CameraOff, Loader2, ScanLine, Video } from "lucide-react"
+import { Camera, CameraOff, Loader2, ScanLine, Video, TriangleAlert } from "lucide-react"
 import { usePoseLandmarker } from "@/lib/use-pose-landmarker"
 import type { NormalizedLandmark } from "@mediapipe/tasks-vision"
+import type { FormAlert } from "@/lib/exercise-analysis"
 
 type CameraFeedProps = {
   active: boolean
   mode: string
   reps: number
+  /** Seconds into the current plank hold, or null for non-hold exercises. When non-null, the HUD shows a timer instead of a rep count. */
+  holdSeconds: number | null
   onToggle: (active: boolean) => void
   /** Forwarded straight through to usePoseLandmarker — see that hook for details. */
   onLandmarks?: (landmarks: NormalizedLandmark[] | undefined, timestampMs: number) => void
+  /** True while the pre-exercise "get into position" phase is running — see CalibrationController in lib/exercise-analysis/calibration.ts. */
+  calibrating: boolean
+  calibrationMessage: string
+  countdownValue: number | null
+  /** Real-time form correction to flash over the feed (e.g. "Push your knees outward."). Distinct from the post-rep feedback list. */
+  formAlert: FormAlert | null
 }
 
-export function CameraFeed({ active, mode, reps, onToggle, onLandmarks }: CameraFeedProps) {
+export function CameraFeed({
+  active,
+  mode,
+  reps,
+  holdSeconds,
+  onToggle,
+  onLandmarks,
+  calibrating,
+  calibrationMessage,
+  countdownValue,
+  formAlert,
+}: CameraFeedProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -114,9 +134,11 @@ export function CameraFeed({ active, mode, reps, onToggle, onLandmarks }: Camera
         {/* scanning overlay when live */}
         {status === "live" && (
           <>
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="h-12 w-full bg-gradient-to-b from-primary/40 to-transparent animate-scan" />
-            </div>
+            {!calibrating && (
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="h-12 w-full bg-gradient-to-b from-primary/40 to-transparent animate-scan" />
+              </div>
+            )}
             {/* corner brackets */}
             <div className="pointer-events-none absolute inset-6">
               {[
@@ -128,38 +150,87 @@ export function CameraFeed({ active, mode, reps, onToggle, onLandmarks }: Camera
                 <span key={pos} className={`absolute size-10 rounded-sm border-primary/70 ${pos}`} aria-hidden />
               ))}
             </div>
-            {/* live HUD chips */}
-            <div className="pointer-events-none absolute bottom-4 left-4 flex flex-wrap gap-2 font-mono text-xs">
-              <span className="rounded-md border border-primary/40 bg-background/70 px-2.5 py-1 text-primary text-glow backdrop-blur">
-                MODE: {mode.toUpperCase()}
-              </span>
-              <span className="rounded-md border border-success/40 bg-background/70 px-2.5 py-1 text-success backdrop-blur">
-                {mode === "Shadowboxing" || mode === "Jab-Cross" ? "STRIKES" : "REPS"}: {reps}
-              </span>
-              <span
-                className={`rounded-md border px-2.5 py-1 backdrop-blur ${
-                  poseStatus === "ready"
-                    ? "border-success/40 text-success"
-                    : poseStatus === "error"
-                      ? "border-destructive/40 text-destructive"
-                      : "border-border text-muted-foreground"
-                } bg-background/70`}
-              >
-                <ScanLine className={`mr-1 inline size-3 ${poseStatus === "loading" ? "animate-pulse" : ""}`} />
-                {poseStatus === "ready"
-                  ? "POSE LOCK"
-                  : poseStatus === "error"
-                    ? "TRACKER ERROR"
-                    : "CALIBRATING…"}
-              </span>
-            </div>
 
-            {/* pose-model error banner — distinct from camera errors below,
-                since the webcam can be perfectly fine while only the
-                skeleton model fails to load (offline, blocked CDN, no WebGL). */}
-            {poseStatus === "error" && poseError && (
-              <div className="absolute right-4 top-4 max-w-xs rounded-lg border border-destructive/40 bg-background/90 px-3 py-2 text-xs leading-relaxed text-destructive backdrop-blur">
-                {poseError}
+            {!calibrating && (
+              <>
+                {/* live HUD chips */}
+                <div className="pointer-events-none absolute bottom-4 left-4 flex flex-wrap gap-2 font-mono text-xs">
+                  <span className="rounded-md border border-primary/40 bg-background/70 px-2.5 py-1 text-primary text-glow backdrop-blur">
+                    MODE: {mode.toUpperCase()}
+                  </span>
+                  {holdSeconds !== null ? (
+                    <span className="rounded-md border border-success/40 bg-background/70 px-2.5 py-1 text-success backdrop-blur">
+                      HOLD: {holdSeconds.toFixed(1)}s
+                    </span>
+                  ) : (
+                    <span className="rounded-md border border-success/40 bg-background/70 px-2.5 py-1 text-success backdrop-blur">
+                      {mode === "Shadowboxing" || mode === "Jab-Cross" ? "STRIKES" : "REPS"}: {reps}
+                    </span>
+                  )}
+                  <span
+                    className={`rounded-md border px-2.5 py-1 backdrop-blur ${
+                      poseStatus === "ready"
+                        ? "border-success/40 text-success"
+                        : poseStatus === "error"
+                          ? "border-destructive/40 text-destructive"
+                          : "border-border text-muted-foreground"
+                    } bg-background/70`}
+                  >
+                    <ScanLine className={`mr-1 inline size-3 ${poseStatus === "loading" ? "animate-pulse" : ""}`} />
+                    {poseStatus === "ready"
+                      ? "POSE LOCK"
+                      : poseStatus === "error"
+                        ? "TRACKER ERROR"
+                        : "CALIBRATING…"}
+                  </span>
+                </div>
+
+                {/* pose-model error banner — distinct from camera errors below,
+                    since the webcam can be perfectly fine while only the
+                    skeleton model fails to load (offline, blocked CDN, no WebGL). */}
+                {poseStatus === "error" && poseError && (
+                  <div className="absolute right-4 top-4 max-w-xs rounded-lg border border-destructive/40 bg-background/90 px-3 py-2 text-xs leading-relaxed text-destructive backdrop-blur">
+                    {poseError}
+                  </div>
+                )}
+
+                {/* Real-time form-correction flash — distinct from the
+                    pose-error banner above (that's a tracking problem; this
+                    is a movement-quality warning) and from the post-rep
+                    feedback list in the sidebar (that's retrospective; this
+                    interrupts mid-movement). */}
+                {formAlert && (
+                  <div
+                    // Using the alert text as the key is a deliberate
+                    // simplification: if the exact same alert fires twice in
+                    // a row within its own display window, the entrance
+                    // animation won't replay (React sees the "same" element).
+                    // That's a rare, purely cosmetic edge case — the alert
+                    // itself still re-displays and its timeout still resets —
+                    // not worth threading a unique id through FormAlert for.
+                    key={formAlert.text}
+                    className="absolute inset-x-0 top-4 mx-auto flex w-fit max-w-[90%] items-center gap-2 rounded-xl border border-warning/50 bg-background/90 px-4 py-2.5 text-sm font-semibold text-warning shadow-lg shadow-warning/20 backdrop-blur animate-flash-in"
+                  >
+                    <TriangleAlert className="size-4 shrink-0" />
+                    {formAlert.text}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Calibration overlay — pre-exercise "get into position" phase.
+                Shown instead of the scoring HUD above, since nothing is
+                being counted yet. See CalibrationController. */}
+            {calibrating && (
+              <div className="absolute inset-x-0 bottom-4 mx-auto flex w-fit max-w-[92%] flex-col items-center gap-2 rounded-xl border border-primary/40 bg-background/85 px-5 py-3 text-center backdrop-blur">
+                {countdownValue !== null ? (
+                  <span className="font-mono text-4xl font-bold text-primary text-glow">{countdownValue}</span>
+                ) : (
+                  <Loader2 className="size-5 animate-spin text-primary" />
+                )}
+                <span className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
+                  {calibrationMessage || "Calibrating…"}
+                </span>
               </div>
             )}
           </>
